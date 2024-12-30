@@ -1,74 +1,70 @@
 import sqlite3
-import openai
 from datetime import datetime
+import openai
 
-# Initialize OpenAI API key
-openai.api_key = 'your-openai-api-key-here'
+# Set your OpenAI API key
+openai.api_key = "use your api key here"
 
-# Connect to SQLite database
-conn = sqlite3.connect('ai_intern.db')
-cursor = conn.cursor()
+def initialize_database():
+    """Initializes the SQLite database."""
+    conn = sqlite3.connect("faq_system.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS faq_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT NOT NULL,
+            response TEXT NOT NULL,
+            timestamp TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-# Create FAQ table if it does not exist
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS faq (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    question TEXT,
-    answer TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-''')
-conn.commit()
+def log_to_database(question, response):
+    """Logs the question, response, and timestamp to the database."""
+    conn = sqlite3.connect("faq_system.db")
+    cursor = conn.cursor()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("""
+        INSERT INTO faq_logs (question, response, timestamp)
+        VALUES (?, ?, ?)
+    """, (question, response, timestamp))
+    conn.commit()
+    conn.close()
 
-# Function to call OpenAI API
-def generate_response(prompt):
+def generate_prompt(question):
+    """Generates the prompt for the ChatGPT API."""
+    return f"You are a support assistant. Answer the following question in one paragraph: {question}"
+
+def get_chatgpt_response(question):
+    """Sends the question to the ChatGPT API and retrieves the response."""
+    prompt = generate_prompt(question)
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful support assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=200
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}]
         )
-        return response['choices'][0]['message']['content'].strip()
+        return response.choices[0].message['content']
     except Exception as e:
-        print(f"Error generating response: {e}")
-        return "I'm sorry, I couldn't generate a response at this time."
+        return f"An error occurred while fetching the response: {e}"
 
+def main():
+    """Main function to handle user interaction and system logic."""
+    initialize_database()
+    print("Welcome to the Automated FAQ System. Type 'exit' to quit.")
 
-# Function to handle FAQ task
-def ask_faq(question):
-    # Check if the question already exists in the database
-    cursor.execute('SELECT answer FROM faq WHERE question = ?', (question,))
-    result = cursor.fetchone()
-
-    if result:
-        print("Answer retrieved from the database.")
-        return result[0]  # Return the answer from the database
-
-    # Generate answer using OpenAI API
-    print("Generating a new answer...")
-    prompt = f"Answer the following question in one paragraph: {question}"
-    answer = generate_response(prompt)
-
-    # Save the question and answer to the database
-    if "Error" not in answer:
-        cursor.execute('INSERT INTO faq (question, answer) VALUES (?, ?)', (question, answer))
-        conn.commit()
-
-    return answer
-
-if __name__ == "__main__":
-    print("Welcome to the FAQ System!")
     while True:
-        print("\nEnter your question (or type 'exit' to quit):")
-        user_question = input("Question: ").strip()
-
+        user_question = input("Enter your question: ")
         if user_question.lower() == 'exit':
-            print("Exiting the FAQ System. Goodbye!")
+            print("Goodbye!")
             break
 
-        # Get the answer for the user's question
-        answer = ask_faq(user_question)
-        print(f"\nAnswer: {answer}")
+        response = get_chatgpt_response(user_question)
+        print("\nResponse:")
+        print(response)
+
+        log_to_database(user_question, response)
+        print("\nYour query and the response have been logged.\n")
+
+if __name__ == "__main__":
+    main()
